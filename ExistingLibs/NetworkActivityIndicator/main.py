@@ -1,62 +1,49 @@
-import datetime
-import pcapy
-import threading
-from matplotlib import pyplot
-from matplotlib import animation
-packet_count = 0
-data_count = 0
-last_timebin = 0
+#https://readthedocs.org/projects/scapy/downloads/pdf/stable/
+from scapy.all import sniff
+from matplotlib import pyplot as plt, animation as anim
+from datetime import datetime
+
+print("Basic filter options:")
+print("    tcp: Capture only TCP packets.")
+print("    udp: Capture only UDP packets.")
+print("    [src, dst] host <ip_address>: Capture packets with the specified IP address as source or destination. src or dst prefixes are used to specify the ip_address purpose.")
+print("    gateway <ip_address>: Capture packets with the specified IP address as the gateway.")
+print("Generally program supports Berkeley Packet Filter (BPF) syntax. It can be found at: https://biot.com/capstats/bpf.html")
+
+user_filter = input("Enter filter expression. Empty input will disable filtering): ").strip()
+
+capture_times = [0]
+packet_sizes = [0]
+
+SNIFFING_TIME = 0.1 # seconds
+GRAPH_UPDATE_TIME = SNIFFING_TIME*1000 # milliseconds
+TIME_WINDOW = 15 # secondss
+
+figure = plt.figure(figsize=(10, 7))
+graph = plt.subplot(1,1,1)
+start = datetime.now()
+
+def handle_packet(receved_packet):
+    packet_sizes[-1] += len(receved_packet)
 
 
-class PcapThread(threading.Thread):
-    def __init__(self, cap):
-        threading.Thread.__init__(self)
-        self.cap = cap
+def update_plot(frame):
+    
+    sniff(prn=handle_packet, filter=user_filter, timeout=SNIFFING_TIME)
 
-    def run(self):
-        global packet_count, data_count
-        while True:
-            something, packet = self.cap.next()
-            packet_count += 1
-            data_count += len(packet)
+    if (datetime.now()-start).total_seconds() > TIME_WINDOW:
+        packet_sizes.pop(0)
+        capture_times.pop(0)
 
+    graph.clear()
+    graph.plot(capture_times, packet_sizes)
 
-def plot_cont():
-    start_time = datetime.datetime.now()
-    packets = [0]
-    data = [0]
-    fig = pyplot.figure()
-    plot_packets = fig.add_subplot(1, 2, 1)
-    plot_data = fig.add_subplot(1, 2, 2)
-    fig.canvas.set_window_title("Network indicator")
+    packet_sizes.append(0)
+    capture_times.append((datetime.now()-start).total_seconds())
+    
 
-    def update(i):
-        global packet_count, data_count, last_timebin
-        time_p = datetime.datetime.now()
-        if (time_p - start_time).seconds > last_timebin:
-            last_timebin = (time_p - start_time).seconds
-            packets.append(packet_count)
-            data.append(data_count)
-            data_count = 0
-            packet_count = 0
-        if len(packets) > 60:
-            del packets[0]
-            del data[0]
-        x = range(len(packets))
-
-        plot_packets.clear()
-        plot_packets.set_title("Packets")
-        plot_packets.plot(x, packets)
-
-        plot_data.clear()
-        plot_data.set_title("Data")
-        plot_data.plot(x, data)
-
-    a = animation.FuncAnimation(fig, update, repeat=False)
-    pyplot.show()
-
-
-cap = pcapy.open_live("en1", 65536, 1, 50)
-thread1 = PcapThread(cap)
-thread1.start()
-plot_cont()
+plt.title('Network activity')
+plt.xlabel('Seconds, s')
+plt.ylabel('Data, bytes')
+animation = anim.FuncAnimation(figure, update_plot, interval=GRAPH_UPDATE_TIME)
+plt.show()
